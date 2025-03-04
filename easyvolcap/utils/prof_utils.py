@@ -6,7 +6,6 @@ from easyvolcap.utils.console_utils import *
 from easyvolcap.utils.base_utils import dotdict
 from torch.profiler import profile, record_function, ProfilerActivity, schedule
 
-
 def profiler_step():
     if 'profiler' in globals():
         # with without_live():

@@ -9,6 +9,7 @@ scipy
 numpy
 sympy
 addict
+PyGLM
 PyYaml
 psutil
 ipython
