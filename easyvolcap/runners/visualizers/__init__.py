@@ -9,9 +9,10 @@ for module in __all__:
         import os
         import sys
         from easyvolcap.utils.console_utils import *
-
         tb = sys.exc_info()[-1]
-        tb = tb.tb_next.tb_next
+
+        while tb.tb_next is not None:
+            tb = tb.tb_next
         filename = tb.tb_frame.f_code.co_filename
         line_number = tb.tb_lineno
 

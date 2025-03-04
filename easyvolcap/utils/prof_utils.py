@@ -1,7 +1,7 @@
 import os
 import time
 import torch
-from easyvolcap.engine import cfg
+# from easyvolcap.engine import cfg
 from easyvolcap.utils.console_utils import *
 from easyvolcap.utils.base_utils import dotdict
 from torch.profiler import profile, record_function, ProfilerActivity, schedule
@@ -38,7 +38,7 @@ def setup_profiler(enabled=False,
                    warmup=5,
                    active=5,
                    repeat=3,
-                   record_dir=f"data/record/{cfg.exp_name}",  # constructed in the same way
+                   record_dir=f"data/record/hello",  # constructed in the same way
                    record_shapes=True,
                    profile_memory=True,
                    with_stack=True,

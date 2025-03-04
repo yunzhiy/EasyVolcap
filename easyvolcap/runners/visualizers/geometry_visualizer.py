@@ -69,7 +69,7 @@ class GeometryVisualizer:
             else:
                 occ = output.occ
             voxel_size = batch.meta.voxel_size
-            W, H, D = batch.meta.W[0].item(), batch.meta.H[0].item(), batch.meta.D[0].item()  # !: BATCH
+            W, H, D = batch.meta.W.max().item(), batch.meta.H.max().item(), batch.meta.D[0].item()  # !: BATCH
             cube = torch.full((np.prod(batch.valid.shape),), -10.0, dtype=occ.dtype, device='cpu')[None]  # 1, WHD
             cube = multi_scatter_(cube[..., None], batch.inds.cpu(), occ.cpu())  # dim = -2 # B, WHD, 1 assigned B, P, 1
             cube = cube.view(-1, W, H, D)  # B, W, H, D

@@ -137,5 +137,6 @@ def main():
     cfg = parse_cfg(args)
     return cfg, args, argv
 
+breakpoint()
 
 cfg, args, argv = main()  # store these global variables

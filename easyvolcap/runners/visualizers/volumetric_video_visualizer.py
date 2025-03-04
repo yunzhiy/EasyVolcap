@@ -36,8 +36,8 @@ class VolumetricVideoVisualizer:  # this should act as a base class for other ty
                      Visualization.ALPHA.name,
                  ],
 
-                 stream_delay: int = 2,  # after this number of pending copy, start synchronizing the stream and saving to disk
-                 pool_limit: int = 10,  # maximum number of pending tasks in the thread pool, keep this small to avoid using too much resource
+                 stream_delay: int = 5,  # after this number of pending copy, start synchronizing the stream and saving to disk
+                 pool_limit: int = 20,  # maximum number of pending tasks in the thread pool, keep this small to avoid using too much resource
                  video_fps: int = 60,
                  verbose: bool = True,
 
@@ -125,7 +125,7 @@ class VolumetricVideoVisualizer:  # this should act as a base class for other ty
         elif type == Visualization.FEATURE:
             # This visualizes the xyzt + xyz feature output
             def feat_curve_fn(feat: torch.Tensor):
-                B, P, C = feat.shape
+                B, P, C = feat.view(feat.shape[0], -1, feat.shape[-1]).shape
                 N = C // 3  # ignore last few feature channels
                 feat = torch.stack(feat[..., :3 * N].chunk(3, dim=-1), dim=-1).mean(dim=-2)  # now in rgb
                 return feat
@@ -146,9 +146,9 @@ class VolumetricVideoVisualizer:  # this should act as a base class for other ty
         elif type == Visualization.FLOW:
             from torchvision.utils import flow_to_image
             img = output.flo_map
-            B, P, C = output.flo_map.shape
-            H, W = batch.meta.H[0].item(), batch.meta.W[0].item()
-            img = output.flo_map.view(B, H, W, C).float()
+            B, P, C = img.view(img.shape[0], -1, img.shape[-1]).shape
+            H, W = batch.meta.H.max().item(), batch.meta.W.max().item()
+            img = img.view(B, H, W, C).float()
             img = img.permute(0, 3, 1, 2)  # B, 2, H, W
             img = flow_to_image(img).view(B, -1, H * W).permute(0, 2, 1)  # B, H*W, 3
             img = img.float() / 255.0
@@ -183,42 +183,59 @@ class VolumetricVideoVisualizer:  # this should act as a base class for other ty
         else:
             raise NotImplementedError(f'Unimplemented visualization type: {type}')
 
-        if img_gt is not None and 'bg_color' in output and 'msk' in batch:
+        if img_gt is not None:
+            img_gt = img_gt.to(img, non_blocking=True)
+
+        msk_gt = None
+
+        if 'msk' in batch:
+            msk_gt = batch.msk.to(img, non_blocking=True)
+
+        if img_gt is not None and 'bg_color' in output and msk_gt is not None:
             # Fill gt with input BG colors
-            img_gt = img_gt + output.bg_color * (1 - batch.msk)
+            # img_gt = img_gt.to(output.bg_color, non_blocking=True) + output.bg_color.view(img_gt.shape) * (1 - batch.msk.to(output.bg_color, non_blocking=True))
+            img_gt = img_gt + output.bg_color.view(img_gt.shape) * (1 - msk_gt)
 
         if self.store_image_error and img_gt is not None:
-            img_error = (img - img_gt).pow(2).sum(dim=-1).clip(0, 1)[..., None].expand(img.shape)
+            img_error = (img.view(img_gt.shape) - img_gt).pow(2).sum(dim=-1).clip(0, 1)[..., None].expand(img_gt.shape)
 
         if self.store_alpha_channel:
             msk = output.acc_map
             img = torch.cat([img, msk], dim=-1)
-            if img_gt is not None:
-                msk_gt = batch.msk
+            if img_gt is not None and msk_gt is not None:
                 img_gt = torch.cat([img_gt, msk_gt], dim=-1)
-            if img_error is not None:
-                msk_gt = batch.msk
-                img_error = torch.cat([img_error, (msk_gt + msk).clip(0, 1)], dim=-1)
+            if img_error is not None and msk_gt is not None:
+                img_error = torch.cat([img_error, (msk_gt + msk.view(msk_gt.shape)).clip(0, 1)], dim=-1)
 
-        B, P, C = img.shape
-        H, W = batch.meta.H[0].item(), batch.meta.W[0].item()
+        B, P, C = img.view(img.shape[0], -1, img.shape[-1]).shape
+        H, W = batch.meta.H.max().item(), batch.meta.W.max().item()
         img = img.view(B, H, W, C).float()
         if img_gt is not None: img_gt = img_gt.view(B, H, W, C).float()
         if img_error is not None: img_error = img_error.view(B, H, W, C).float()
 
         if self.uncrop_output_images:  # necessary for GUI applications
             if 'orig_h' in batch.meta:  # !: BATCH: Removed
-                x, y, w, h = batch.meta.crop_x[0].item(), batch.meta.crop_y[0].item(), batch.meta.W[0].item(), batch.meta.H[0].item()
-                H, W = batch.meta.orig_h[0].item(), batch.meta.orig_w[0].item()
-                img_full = img.new_zeros(B, H, W, C)  # original size
+                try:
+                    bg_brightness = cfg.model_cfg.renderer_cfg.bg_brightness
+                except Exception as e:
+                    bg_brightness = 0.0
+                x, y, w, h = batch.meta.crop_x.item(), batch.meta.crop_y.item(), batch.meta.W.max().item(), batch.meta.H.max().item()
+                H, W = batch.meta.orig_h.item(), batch.meta.orig_w.item()
+                img_full = img.new_full((B, H, W, C), fill_value=bg_brightness)  # original size
+                if self.store_alpha_channel:
+                    img_full[..., -1] = 0.0
                 img_full[:, y:y + h, x:x + w, :] = img
                 img = img_full
                 if img_gt is not None:
-                    img_gt_full = img_gt.new_zeros(B, H, W, C)  # original size
+                    img_gt_full = img_gt.new_full((B, H, W, C), fill_value=bg_brightness)  # original size
+                    if self.store_alpha_channel:
+                        img_gt_full[..., -1] = 0.0
                     img_gt_full[:, y:y + h, x:x + w, :] = img_gt
                     img_gt = img_gt_full
                 if img_error is not None:
-                    img_error_full = img_error.new_zeros(B, H, W, C)  # original size
+                    img_error_full = img_error.new_full((B, H, W, C), fill_value=0.0)  # original size
+                    if self.store_alpha_channel:
+                        img_error_full[..., -1] = 0.0
                     img_error_full[:, y:y + h, x:x + w, :] = img_error
                     img_error = img_error_full
 
@@ -240,8 +257,8 @@ class VolumetricVideoVisualizer:  # this should act as a base class for other ty
         img_arrays = []
 
         for i in range(len(imgs)):
-            frame = frame_index[i].item()
-            camera = camera_index[i].item()
+            frame = frame_index[i].item() if frame_index.ndim > 0 else frame_index.item()
+            camera = camera_index[i].item() if camera_index.ndim > 0 else camera_index.item()
 
             # For shared values # TODO: fix this hacky implementation
             self.camera = camera  # for generating video
@@ -299,7 +316,7 @@ class VolumetricVideoVisualizer:  # this should act as a base class for other ty
                 stream.synchronize()  # wait for the copy in this stream to finish
                 img_paths, img_arrays = buffer
                 img_arrays = [im.numpy() for im in img_arrays]
-                pool = parallel_execution(img_paths, img_arrays, action=save_image, async_return=True, num_workers=3)  # actual writing to disk (async)
+                pool = parallel_execution(img_paths, img_arrays, action=save_image, async_return=True, num_workers=self.stream_delay)  # actual writing to disk (async)
                 self.thread_pools.append(pool)
             self.cpu_buffers = self.cpu_buffers[stream_cnt - self.stream_delay:]
             self.cuda_streams = self.cuda_streams[stream_cnt - self.stream_delay:]

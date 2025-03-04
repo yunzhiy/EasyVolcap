@@ -87,14 +87,12 @@ pdbr.utils.set_traceback(pdbr_theme)
 RichPdb._theme = pdbr_theme
 # fmt: on
 
-
 class MyYAML(YAML):
     def dumps(self, obj: Union[dict, dotdict]):
         if isinstance(obj, dotdict): obj = obj.to_dict()
         buf = BytesIO()
         self.dump(obj, buf)  # ?: is the dumping also in utf-8?
         return buf.getvalue().decode(encoding='utf-8', errors='strict')[:-1]  # remove \n
-
 
 yaml = MyYAML()
 yaml.default_flow_style = None
@@ -122,7 +120,6 @@ NoneType = type(None)
 # Need to check its reliability and integratability
 # Since the string markup might mess things up
 # TODO: maybe make the console object confiugrable?
-
 
 class without_live:
     def __enter__(self):
